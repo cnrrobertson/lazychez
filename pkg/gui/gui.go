@@ -60,6 +60,14 @@ type Gui struct {
 	// Set to a target path when the user presses 'e'. Run() returns this value
 	// so app.Run() can suspend, run `chezmoi edit`, and restart the TUI.
 	pendingEdit string
+
+	// --- pending apply ---
+	// Set when the user presses 'a'/'A'. Run() returns this value so app.Run()
+	// can suspend, run `chezmoi apply [target]` with full terminal access
+	// (allowing chezmoi's interactive overwrite prompts), then restart the TUI.
+	// Empty string means apply-all; non-empty means apply a specific target.
+	pendingApply    string
+	pendingApplyAll bool
 }
 
 // NewGui creates a new Gui bound to the given chezmoi client.
@@ -76,20 +84,34 @@ func NewGui(cz *chezmoi.Client, glamourStyle string) *Gui {
 	}
 }
 
+// RunResult carries the reason the TUI exited so app.Run() can take the
+// appropriate follow-up action before restarting the TUI.
+type RunResult struct {
+	// PendingEdit is non-empty when the user pressed 'e'; the caller should
+	// run `chezmoi edit <PendingEdit>` with full terminal access.
+	PendingEdit string
+	// PendingApply is non-empty when the user pressed 'a'; the caller should
+	// run `chezmoi apply <PendingApply>` with full terminal access so that
+	// chezmoi's interactive overwrite prompts reach the user.
+	PendingApply string
+	// ApplyAll is true when the user pressed 'A'; the caller should run
+	// `chezmoi apply` (no target) with full terminal access.
+	ApplyAll bool
+}
+
 // Run initialises gocui, wires up layout and keybindings, kicks off the
 // initial data load, and starts the event loop.
 //
-// Returns (pendingEdit, err):
-//   - pendingEdit is non-empty when the user pressed 'e' to edit a file;
-//     the caller should run `chezmoi edit <pendingEdit>` then restart the TUI.
+// Returns (RunResult, err):
 //   - err is non-nil only for unexpected gocui errors (not ErrQuit).
-func (gui *Gui) Run() (string, error) {
+//   - Check RunResult fields to determine what action to take before restarting.
+func (gui *Gui) Run() (RunResult, error) {
 	g, err := gocui.NewGui(gocui.NewGuiOpts{
 		OutputMode:      gocui.OutputTrue,
 		SupportOverlaps: false,
 	})
 	if err != nil {
-		return "", fmt.Errorf("initialising terminal UI: %w", err)
+		return RunResult{}, fmt.Errorf("initialising terminal UI: %w", err)
 	}
 	defer g.Close()
 
@@ -100,14 +122,18 @@ func (gui *Gui) Run() (string, error) {
 	g.SetManagerFunc(gui.layout)
 
 	if err := gui.setKeybindings(); err != nil {
-		return "", fmt.Errorf("setting keybindings: %w", err)
+		return RunResult{}, fmt.Errorf("setting keybindings: %w", err)
 	}
 
 	// Load chezmoi data in the background — the UI is usable immediately.
 	go gui.initialLoad()
 
 	if err := g.MainLoop(); err != nil && !errors.Is(err, gocui.ErrQuit) {
-		return "", err
+		return RunResult{}, err
 	}
-	return gui.pendingEdit, nil
+	return RunResult{
+		PendingEdit:  gui.pendingEdit,
+		PendingApply: gui.pendingApply,
+		ApplyAll:     gui.pendingApplyAll,
+	}, nil
 }

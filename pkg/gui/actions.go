@@ -20,47 +20,32 @@ func (gui *Gui) refreshAll(_ *gocui.Gui, _ *gocui.View) error {
 
 // ── Apply ─────────────────────────────────────────────────────────────────────
 
-// applyFile runs `chezmoi apply <target>` for the currently selected file in
-// the "changed" panel. No-ops when a directory node is selected.
+// applyFile suspends the TUI and runs `chezmoi apply <target>` with full
+// terminal access, allowing chezmoi's interactive overwrite prompts to reach
+// the user. The TUI restarts automatically after the command completes.
 func (gui *Gui) applyFile(_ *gocui.Gui, _ *gocui.View) error {
 	target := gui.changedFileTarget()
 	if target == "" {
 		return nil
 	}
-
-	go func() {
-		gui.logConsole(fmt.Sprintf("Applying %s...", target))
-		if err := gui.cz.Apply(target); err != nil {
-			gui.logConsole("Error: " + err.Error())
-			return
-		}
-		gui.logConsole(fmt.Sprintf("✓ Applied %s", target))
-		go gui.reloadChanged()
-	}()
-	return nil
+	gui.pendingApply = target
+	return gocui.ErrQuit
 }
 
-// applyAll runs `chezmoi apply` (no target) to apply all pending changes.
-// Reloads all three panels after completion.
+// applyAll suspends the TUI and runs `chezmoi apply` (no target) with full
+// terminal access, allowing chezmoi's interactive overwrite prompts to reach
+// the user. The TUI restarts automatically after the command completes.
 func (gui *Gui) applyAll(_ *gocui.Gui, _ *gocui.View) error {
-	go func() {
-		gui.logConsole("Applying all changes...")
-		if err := gui.cz.Apply(""); err != nil {
-			gui.logConsole("Error: " + err.Error())
-			return
-		}
-		gui.logConsole("✓ Applied all changes")
-		go gui.initialLoad()
-	}()
-	return nil
+	gui.pendingApplyAll = true
+	return gocui.ErrQuit
 }
 
 // ── Add / Re-add ──────────────────────────────────────────────────────────────
 
-// addFile runs `chezmoi add <target>` for the currently selected file in the
-// "changed" panel. No-ops when a directory node is selected.
+// addFile runs `chezmoi add <target>` for the currently selected file or
+// directory in the "changed" panel.
 func (gui *Gui) addFile(_ *gocui.Gui, _ *gocui.View) error {
-	target := gui.changedFileTarget()
+	target := gui.changedTarget()
 	if target == "" {
 		return nil
 	}
@@ -77,10 +62,10 @@ func (gui *Gui) addFile(_ *gocui.Gui, _ *gocui.View) error {
 	return nil
 }
 
-// reAddFile runs `chezmoi re-add <target>` for the currently selected file in
-// the "changed" panel. No-ops when a directory node is selected.
+// reAddFile runs `chezmoi re-add <target>` for the currently selected file or
+// directory in the "changed" panel.
 func (gui *Gui) reAddFile(_ *gocui.Gui, _ *gocui.View) error {
-	target := gui.changedFileTarget()
+	target := gui.changedTarget()
 	if target == "" {
 		return nil
 	}
@@ -181,6 +166,20 @@ func (gui *Gui) changedFileTarget() string {
 	fn := gui.changedFlat[gui.changedIdx]
 	if fn.Node.IsDir {
 		return ""
+	}
+	return gui.changedFiles[fn.Node.Index].Path
+}
+
+// changedTarget returns the target path of the selected file or directory in
+// the "changed" panel. Unlike changedFileTarget, this also returns dir paths
+// so that add/re-add can operate recursively on whole directories.
+func (gui *Gui) changedTarget() string {
+	if gui.changedIdx >= len(gui.changedFlat) {
+		return ""
+	}
+	fn := gui.changedFlat[gui.changedIdx]
+	if fn.Node.IsDir {
+		return fn.Node.Path
 	}
 	return gui.changedFiles[fn.Node.Index].Path
 }

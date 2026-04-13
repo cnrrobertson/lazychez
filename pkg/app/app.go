@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	"github.com/muesli/termenv"
 	"lazychez/pkg/chezmoi"
@@ -35,23 +36,42 @@ func Run() error {
 		g := gui.NewGui(cz, glamourStyle)
 		cz.SetCmdLog(g.CmdLogger())
 
-		pendingEdit, err := g.Run()
+		result, err := g.Run()
 		if err != nil {
 			return err
 		}
-		if pendingEdit == "" {
-			// Normal quit — nothing pending.
+
+		// Normal quit — nothing pending.
+		if result.PendingEdit == "" && result.PendingApply == "" && !result.ApplyAll {
 			return nil
 		}
 
-		// Suspend TUI: run `chezmoi edit <target>` with full terminal access.
-		cmd := exec.Command("chezmoi", "edit", pendingEdit)
+		var cmd *exec.Cmd
+		switch {
+		case result.PendingEdit != "":
+			// Suspend TUI: run `chezmoi edit <target>` with full terminal access.
+			// Resolve to absolute path — exec.Command does not invoke a shell.
+			home, _ := os.UserHomeDir()
+			cmd = exec.Command("chezmoi", "edit", filepath.Join(home, result.PendingEdit))
+		case result.ApplyAll:
+			// Suspend TUI: run `chezmoi apply` with full terminal access so that
+			// chezmoi's interactive overwrite prompts reach the user.
+			cmd = exec.Command("chezmoi", "apply")
+		case result.PendingApply != "":
+			// Suspend TUI: run `chezmoi apply <target>` with full terminal access.
+			// Resolve the home-relative path to an absolute path; exec.Command
+			// does not invoke a shell so "~/" would not be expanded.
+			home, _ := os.UserHomeDir()
+			absTarget := filepath.Join(home, result.PendingApply)
+			cmd = exec.Command("chezmoi", "apply", absTarget)
+		}
+
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if runErr := cmd.Run(); runErr != nil {
-			fmt.Fprintf(os.Stderr, "chezmoi edit: %v\n", runErr)
+			fmt.Fprintf(os.Stderr, "chezmoi: %v\n", runErr)
 		}
-		// Loop: restart the TUI after the editor exits.
+		// Loop: restart the TUI after the command exits.
 	}
 }

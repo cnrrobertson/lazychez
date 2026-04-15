@@ -13,6 +13,7 @@ func (gui *Gui) setKeybindings() error {
 		{ViewName: "", Key: gocui.KeyTab, Mod: gocui.ModNone, Description: "next panel", Tag: "navigation", Handler: gui.nextPanel},
 		{ViewName: "", Key: gocui.KeyBacktab, Mod: gocui.ModNone, Description: "previous panel", Tag: "navigation", Handler: gui.prevPanel},
 		{ViewName: "", Key: 'r', Mod: gocui.ModNone, Description: "refresh all", Tag: "global", Handler: gui.refreshAll},
+		{ViewName: "", Key: 'g', Mod: gocui.ModNone, Description: "open lazygit in chezmoi source dir", Tag: "global", Handler: gui.openLazygit},
 
 		// --- changed panel ---
 		{ViewName: "changed", Key: 'j', Mod: gocui.ModNone, Description: "move down", Tag: "navigation", Handler: gui.navigateDown},

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/muesli/termenv"
 	"lazychez/pkg/chezmoi"
@@ -42,7 +43,7 @@ func Run() error {
 		}
 
 		// Normal quit — nothing pending.
-		if result.PendingEdit == "" && result.PendingApply == "" && !result.ApplyAll {
+		if result.PendingEdit == "" && result.PendingApply == "" && !result.ApplyAll && !result.PendingLazygit {
 			return nil
 		}
 
@@ -64,13 +65,22 @@ func Run() error {
 			home, _ := os.UserHomeDir()
 			absTarget := filepath.Join(home, result.PendingApply)
 			cmd = exec.Command("chezmoi", "apply", absTarget)
+		case result.PendingLazygit:
+			// Suspend TUI: run `lazygit` in the chezmoi source directory so the
+			// user can manage dotfile source commits without leaving lazychez.
+			sourceDir, srcErr := exec.Command("chezmoi", "source-path").Output()
+			if srcErr != nil {
+				fmt.Fprintf(os.Stderr, "chezmoi source-path: %v\n", srcErr)
+				continue
+			}
+			cmd = exec.Command("lazygit", "-p", strings.TrimSpace(string(sourceDir)))
 		}
 
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if runErr := cmd.Run(); runErr != nil {
-			fmt.Fprintf(os.Stderr, "chezmoi: %v\n", runErr)
+			fmt.Fprintf(os.Stderr, "lazychez: %v\n", runErr)
 		}
 		// Loop: restart the TUI after the command exits.
 	}

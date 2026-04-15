@@ -68,6 +68,11 @@ type Gui struct {
 	// Empty string means apply-all; non-empty means apply a specific target.
 	pendingApply    string
 	pendingApplyAll bool
+
+	// --- pending lazygit ---
+	// Set when the user presses 'g'. Run() returns this so app.Run() can
+	// suspend, run `lazygit` in the chezmoi source directory, then restart.
+	pendingLazygit bool
 }
 
 // NewGui creates a new Gui bound to the given chezmoi client.
@@ -97,6 +102,9 @@ type RunResult struct {
 	// ApplyAll is true when the user pressed 'A'; the caller should run
 	// `chezmoi apply` (no target) with full terminal access.
 	ApplyAll bool
+	// PendingLazygit is true when the user pressed 'g'; the caller should run
+	// `lazygit` in the chezmoi source directory with full terminal access.
+	PendingLazygit bool
 }
 
 // Run initialises gocui, wires up layout and keybindings, kicks off the
@@ -132,8 +140,9 @@ func (gui *Gui) Run() (RunResult, error) {
 		return RunResult{}, err
 	}
 	return RunResult{
-		PendingEdit:  gui.pendingEdit,
-		PendingApply: gui.pendingApply,
-		ApplyAll:     gui.pendingApplyAll,
+		PendingEdit:    gui.pendingEdit,
+		PendingApply:   gui.pendingApply,
+		ApplyAll:       gui.pendingApplyAll,
+		PendingLazygit: gui.pendingLazygit,
 	}, nil
 }

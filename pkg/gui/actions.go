@@ -217,6 +217,15 @@ func (gui *Gui) repositionToDir(v *gocui.View, flat []filetree.FlatNode, idx *in
 	}
 }
 
+// ── Lazygit ───────────────────────────────────────────────────────────────────
+
+// openLazygit suspends the TUI and launches lazygit in the chezmoi source
+// directory. The TUI restarts automatically when lazygit exits.
+func (gui *Gui) openLazygit(_ *gocui.Gui, _ *gocui.View) error {
+	gui.pendingLazygit = true
+	return gocui.ErrQuit
+}
+
 // ── Help overlay ──────────────────────────────────────────────────────────────
 
 // showHelp opens the keybindings help overlay. Pressing '?' again closes it.

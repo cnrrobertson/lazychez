@@ -3,6 +3,7 @@ module lazychez
 go 1.25.0
 
 require (
+	github.com/alecthomas/chroma/v2 v2.23.1
 	github.com/jesseduffield/gocui v0.3.1-0.20260327132312-944dab3bc980
 	github.com/muesli/termenv v0.16.0
 	github.com/sahilm/fuzzy v0.1.1
@@ -10,6 +11,7 @@ require (
 
 require (
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/gdamore/encoding v1.0.1 // indirect
 	github.com/gdamore/tcell/v2 v2.13.5 // indirect
 	github.com/go-errors/errors v1.0.2 // indirect

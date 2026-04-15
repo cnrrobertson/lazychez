@@ -1,9 +1,11 @@
 package gui
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
+	chromaQuick "github.com/alecthomas/chroma/v2/quick"
 	"github.com/jesseduffield/gocui"
 	"lazychez/pkg/chezmoi"
 	"lazychez/pkg/filetree"
@@ -175,7 +177,12 @@ func (gui *Gui) renderCatPreview(g *gocui.Gui, target, kind string) {
 				fmt.Fprintln(v, "\x1b[90m  (empty file)\x1b[0m")
 				return nil
 			}
-			fmt.Fprint(v, content)
+			highlighted, hlErr := syntaxHighlight(target, content, gui.glamourStyle)
+			if hlErr != nil {
+				fmt.Fprint(v, content) // fallback: plain text
+			} else {
+				fmt.Fprint(v, highlighted)
+			}
 			return nil
 		})
 	}()
@@ -253,6 +260,21 @@ func statusIcon(status string) string {
 	default:
 		return "\x1b[90m?\x1b[0m"
 	}
+}
+
+// syntaxHighlight applies chroma syntax highlighting to content, detecting the
+// language from the filename. glamourStyle should be "dark" or "light".
+// Returns an error if chroma cannot highlight (caller should fall back to plain text).
+func syntaxHighlight(filename, content, glamourStyle string) (string, error) {
+	theme := "monokai"
+	if glamourStyle == "light" {
+		theme = "friendly"
+	}
+	var buf bytes.Buffer
+	if err := chromaQuick.Highlight(&buf, content, filename, "terminal256", theme); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // truncate shortens s to at most n runes, appending "…" if trimmed.

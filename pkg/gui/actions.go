@@ -107,6 +107,28 @@ func (gui *Gui) reAddFile(_ *gocui.Gui, _ *gocui.View) error {
 	return nil
 }
 
+// ── Forget ────────────────────────────────────────────────────────────────────
+
+// forgetFile runs `chezmoi forget <target>` for the currently selected file,
+// removing it from chezmoi management without deleting the target file.
+// Works from both the "managed" and "changed" panels.
+func (gui *Gui) forgetFile(_ *gocui.Gui, _ *gocui.View) error {
+	target := gui.currentTarget()
+	if target == "" {
+		return nil
+	}
+	go func() {
+		gui.logConsole(fmt.Sprintf("Forgetting %s...", target))
+		if err := gui.cz.Forget(target); err != nil {
+			gui.logConsole("Error: " + err.Error())
+			return
+		}
+		gui.logConsole(fmt.Sprintf("✓ Forgot %s", target))
+		go gui.initialLoad()
+	}()
+	return nil
+}
+
 // ── Tree collapse ─────────────────────────────────────────────────────────────
 
 // toggleCollapse expands or collapses the directory node currently under the

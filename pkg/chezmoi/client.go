@@ -183,3 +183,11 @@ func (c *Client) ReAdd(target string) error {
 	_, err := c.run("re-add", expandPath(target))
 	return err
 }
+
+// Forget removes a target from chezmoi management without deleting the target
+// file (`chezmoi forget --force <target>`). --force skips interactive prompts
+// since the user has already confirmed intent by pressing the keybind.
+func (c *Client) Forget(target string) error {
+	_, err := c.run("forget", "--force", expandPath(target))
+	return err
+}

@@ -26,6 +26,7 @@ func (gui *Gui) setKeybindings() error {
 		{ViewName: "changed", Key: '+', Mod: gocui.ModNone, Description: "add file to chezmoi", Handler: gui.addFile},
 		{ViewName: "changed", Key: 'R', Mod: gocui.ModNone, Description: "re-add (pull target → source)", Handler: gui.reAddFile},
 		{ViewName: "changed", Key: gocui.KeyEnter, Mod: gocui.ModNone, Description: "expand/collapse directory", Handler: gui.toggleCollapse},
+		{ViewName: "changed", Key: 'D', Mod: gocui.ModNone, Description: "forget file (stop tracking)", Handler: gui.forgetFile},
 
 		// --- managed panel ---
 		{ViewName: "managed", Key: 'j', Mod: gocui.ModNone, Description: "move down", Tag: "navigation", Handler: gui.navigateDown},
@@ -34,6 +35,7 @@ func (gui *Gui) setKeybindings() error {
 		{ViewName: "managed", Key: gocui.KeyArrowUp, Mod: gocui.ModNone, Handler: gui.navigateUp},
 		{ViewName: "managed", Key: 'e', Mod: gocui.ModNone, Description: "edit source file", Handler: gui.editFile},
 		{ViewName: "managed", Key: gocui.KeyEnter, Mod: gocui.ModNone, Description: "expand/collapse directory", Handler: gui.toggleCollapse},
+		{ViewName: "managed", Key: 'D', Mod: gocui.ModNone, Description: "forget file (stop tracking)", Handler: gui.forgetFile},
 
 		// --- scripts panel ---
 		{ViewName: "scripts", Key: 'j', Mod: gocui.ModNone, Description: "move down", Tag: "navigation", Handler: gui.navigateDown},

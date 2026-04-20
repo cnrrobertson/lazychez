@@ -2,6 +2,10 @@ package gui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/jesseduffield/gocui"
 	"lazychez/pkg/filetree"
@@ -22,22 +26,43 @@ func (gui *Gui) refreshAll(_ *gocui.Gui, _ *gocui.View) error {
 
 // applyFile suspends the TUI and runs `chezmoi apply <target>` with full
 // terminal access, allowing chezmoi's interactive overwrite prompts to reach
-// the user. The TUI restarts automatically after the command completes.
-func (gui *Gui) applyFile(_ *gocui.Gui, _ *gocui.View) error {
+// the user. Resumes the TUI and reloads the changed panel when done.
+func (gui *Gui) applyFile(g *gocui.Gui, _ *gocui.View) error {
 	target := gui.changedFileTarget()
 	if target == "" {
 		return nil
 	}
-	gui.pendingApply = target
-	return gocui.ErrQuit
+	home, _ := os.UserHomeDir()
+	cmd := exec.Command("chezmoi", "apply", filepath.Join(home, target))
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+
+	if err := g.Suspend(); err != nil {
+		return err
+	}
+	cmd.Run()
+	if err := g.Resume(); err != nil {
+		return err
+	}
+	go gui.reloadChanged()
+	return nil
 }
 
 // applyAll suspends the TUI and runs `chezmoi apply` (no target) with full
 // terminal access, allowing chezmoi's interactive overwrite prompts to reach
-// the user. The TUI restarts automatically after the command completes.
-func (gui *Gui) applyAll(_ *gocui.Gui, _ *gocui.View) error {
-	gui.pendingApplyAll = true
-	return gocui.ErrQuit
+// the user. Resumes the TUI and reloads all panels when done.
+func (gui *Gui) applyAll(g *gocui.Gui, _ *gocui.View) error {
+	cmd := exec.Command("chezmoi", "apply")
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+
+	if err := g.Suspend(); err != nil {
+		return err
+	}
+	cmd.Run()
+	if err := g.Resume(); err != nil {
+		return err
+	}
+	go gui.initialLoad()
+	return nil
 }
 
 // ── Add / Re-add ──────────────────────────────────────────────────────────────
@@ -127,17 +152,26 @@ func (gui *Gui) toggleCollapse(g *gocui.Gui, v *gocui.View) error {
 
 // ── Edit ──────────────────────────────────────────────────────────────────────
 
-// editFile sets gui.pendingEdit to the current item's target path and quits the
-// TUI. app.Run() detects the non-empty pendingEdit, runs `chezmoi edit <path>`
-// with full terminal access, then restarts the TUI.
-func (gui *Gui) editFile(g *gocui.Gui, v *gocui.View) error {
+// editFile suspends the TUI and runs `chezmoi edit <target>` with full terminal
+// access. On return the TUI resumes exactly where it was and data is reloaded.
+func (gui *Gui) editFile(g *gocui.Gui, _ *gocui.View) error {
 	target := gui.currentTarget()
 	if target == "" {
 		return nil
 	}
-	gui.logConsole(fmt.Sprintf("Opening editor for %s...", target))
-	gui.pendingEdit = target
-	return gocui.ErrQuit
+	home, _ := os.UserHomeDir()
+	cmd := exec.Command("chezmoi", "edit", filepath.Join(home, target))
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+
+	if err := g.Suspend(); err != nil {
+		return err
+	}
+	cmd.Run()
+	if err := g.Resume(); err != nil {
+		return err
+	}
+	go gui.initialLoad()
+	return nil
 }
 
 // currentTarget returns the target path for the currently focused panel/item.
@@ -220,10 +254,25 @@ func (gui *Gui) repositionToDir(v *gocui.View, flat []filetree.FlatNode, idx *in
 // ── Lazygit ───────────────────────────────────────────────────────────────────
 
 // openLazygit suspends the TUI and launches lazygit in the chezmoi source
-// directory. The TUI restarts automatically when lazygit exits.
-func (gui *Gui) openLazygit(_ *gocui.Gui, _ *gocui.View) error {
-	gui.pendingLazygit = true
-	return gocui.ErrQuit
+// directory. Resumes the TUI and reloads all data when lazygit exits.
+func (gui *Gui) openLazygit(g *gocui.Gui, _ *gocui.View) error {
+	sourceDir, err := exec.Command("chezmoi", "source-path").Output()
+	if err != nil {
+		gui.logConsole("Error: could not get chezmoi source path: " + err.Error())
+		return nil
+	}
+	cmd := exec.Command("lazygit", "-p", strings.TrimSpace(string(sourceDir)))
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+
+	if err := g.Suspend(); err != nil {
+		return err
+	}
+	cmd.Run()
+	if err := g.Resume(); err != nil {
+		return err
+	}
+	go gui.initialLoad()
+	return nil
 }
 
 // ── Help overlay ──────────────────────────────────────────────────────────────

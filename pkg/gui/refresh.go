@@ -29,10 +29,9 @@ func (gui *Gui) initialLoad() {
 		gui.g.Update(func(g *gocui.Gui) error {
 			gui.changedFiles = files
 			gui.rebuildChangedTree()
-			gui.changedIdx = 0
+			gui.changedIdx = clampIdx(gui.changedIdx, len(gui.changedFlat))
 			if v, err := g.View("changed"); err == nil {
-				v.SetOrigin(0, 0)
-				v.SetCursor(0, 0)
+				positionCursor(v, gui.changedIdx)
 			}
 			gui.logConsole(fmt.Sprintf("Loaded %d changed file(s)", len(files)))
 			if err := gui.renderChanged(g); err != nil {
@@ -56,10 +55,9 @@ func (gui *Gui) initialLoad() {
 		gui.g.Update(func(g *gocui.Gui) error {
 			gui.managedFiles = files
 			gui.rebuildManagedTree()
-			gui.managedIdx = 0
+			gui.managedIdx = clampIdx(gui.managedIdx, len(gui.managedFlat))
 			if v, err := g.View("managed"); err == nil {
-				v.SetOrigin(0, 0)
-				v.SetCursor(0, 0)
+				positionCursor(v, gui.managedIdx)
 			}
 			gui.logConsole(fmt.Sprintf("Loaded %d managed file(s)", len(files)))
 			return gui.renderManaged(g)
@@ -76,10 +74,9 @@ func (gui *Gui) initialLoad() {
 		}
 		gui.g.Update(func(g *gocui.Gui) error {
 			gui.scripts = scripts
-			gui.scriptIdx = 0
+			gui.scriptIdx = clampIdx(gui.scriptIdx, len(gui.scripts))
 			if v, err := g.View("scripts"); err == nil {
-				v.SetOrigin(0, 0)
-				v.SetCursor(0, 0)
+				positionCursor(v, gui.scriptIdx)
 			}
 			gui.logConsole(fmt.Sprintf("Loaded %d script(s)", len(scripts)))
 			return gui.renderScripts(g)
@@ -149,6 +146,32 @@ func (gui *Gui) rebuildManagedTree() {
 	}
 	gui.managedTree = filetree.BuildTree(paths)
 	gui.managedFlat = filetree.Flatten(gui.managedTree, gui.managedCollapsed)
+}
+
+// ── Cursor helpers ────────────────────────────────────────────────────────────
+
+// clampIdx returns idx clamped to [0, total-1]. Returns 0 when total == 0.
+func clampIdx(idx, total int) int {
+	if total == 0 || idx < 0 {
+		return 0
+	}
+	if idx >= total {
+		return total - 1
+	}
+	return idx
+}
+
+// positionCursor sets the view's origin and cursor so the item at idx is
+// visible and highlighted. Mirrors the logic used in repositionToDir.
+func positionCursor(v *gocui.View, idx int) {
+	_, vh := v.InnerSize()
+	if idx < vh {
+		v.SetOrigin(0, 0)
+		v.SetCursor(0, idx)
+	} else {
+		v.SetOrigin(0, idx-vh+1)
+		v.SetCursor(0, vh-1)
+	}
 }
 
 // CmdLogger returns a function that logs a message to the console panel.

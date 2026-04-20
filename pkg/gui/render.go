@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	"time"
 
 	chromaQuick "github.com/alecthomas/chroma/v2/quick"
 	"github.com/jesseduffield/gocui"
@@ -70,9 +71,26 @@ func (gui *Gui) renderScripts(g *gocui.Gui) error {
 
 // ── Preview dispatcher ────────────────────────────────────────────────────────
 
-// updatePreview refreshes the preview pane based on the currently focused panel
-// and selected item. Called after every navigation event and panel switch.
+// updatePreview debounces preview refreshes so that rapid navigation (holding
+// j/k) does not spawn a subprocess on every keypress. After the user pauses
+// for previewDebounce the actual render is dispatched via g.Update.
+const previewDebounce = 150 * time.Millisecond
+
 func (gui *Gui) updatePreview(g *gocui.Gui) error {
+	if gui.previewTimer != nil {
+		gui.previewTimer.Stop()
+	}
+	gui.previewTimer = time.AfterFunc(previewDebounce, func() {
+		g.Update(func(g *gocui.Gui) error {
+			return gui.triggerPreview(g)
+		})
+	})
+	return nil
+}
+
+// triggerPreview is the real preview dispatcher, called after the debounce
+// delay. It mirrors the old updatePreview body exactly.
+func (gui *Gui) triggerPreview(g *gocui.Gui) error {
 	switch gui.currentPanel {
 	case "changed":
 		if gui.changedIdx < len(gui.changedFlat) {
@@ -160,6 +178,18 @@ func (gui *Gui) renderCatPreview(g *gocui.Gui, target, kind string) {
 	go func() {
 		content, err := gui.cz.Cat(target)
 
+		// Run syntax highlighting off the main thread — chroma's regexp2-based
+		// lexers can be slow (especially for fish/bash), and g.Update runs on
+		// the event loop, so doing it here keeps the TUI responsive.
+		var highlighted string
+		if err == nil && strings.TrimSpace(content) != "" {
+			if h, hlErr := syntaxHighlight(target, content, gui.glamourStyle); hlErr == nil {
+				highlighted = h
+			} else {
+				highlighted = content // fallback: plain text
+			}
+		}
+
 		gui.g.Update(func(g *gocui.Gui) error {
 			if gui.previewGen != gen {
 				return nil
@@ -177,12 +207,7 @@ func (gui *Gui) renderCatPreview(g *gocui.Gui, target, kind string) {
 				fmt.Fprintln(v, "\x1b[90m  (empty file)\x1b[0m")
 				return nil
 			}
-			highlighted, hlErr := syntaxHighlight(target, content, gui.glamourStyle)
-			if hlErr != nil {
-				fmt.Fprint(v, content) // fallback: plain text
-			} else {
-				fmt.Fprint(v, highlighted)
-			}
+			fmt.Fprint(v, highlighted)
 			return nil
 		})
 	}()

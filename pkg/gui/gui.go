@@ -3,6 +3,7 @@ package gui
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jesseduffield/gocui"
 	"lazychez/pkg/chezmoi"
@@ -50,7 +51,8 @@ type Gui struct {
 	// previewGen is incremented on each preview request. The goroutine captures
 	// a snapshot; if the snapshot no longer matches when it finishes, the result
 	// is discarded (user navigated away). Same pattern as lazygithub.
-	previewGen int
+	previewGen   int
+	previewTimer *time.Timer // debounce timer; reset on every navigation event
 
 	// glamourStyle is "dark" or "light", detected once before gocui starts.
 	// Reserved for future syntax highlighting.

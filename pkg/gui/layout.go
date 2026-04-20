@@ -54,6 +54,27 @@ func (gui *Gui) layout(g *gocui.Gui) error {
 		_ = err
 	}
 
+	// Search bar — docked at the bottom of the active panel when visible.
+	// Uses a framed view (same as helpsearch) so gocui draws proper border
+	// characters, preventing the underlying panel content from bleeding through.
+	if gui.searchVisible {
+		d := dims[gui.searchPanel]
+		sv, _ := g.SetView("searchbar", d.X0, d.Y1-3, d.X1, d.Y1-1, 0)
+		if sv != nil {
+			sv.Title = " / "
+			sv.Editable = true
+			sv.Editor = &searchEditor{gui: gui}
+		}
+		_, _ = g.SetViewOnTop("searchbar")
+		if sv, err2 := g.View("searchbar"); err2 == nil {
+			sv.Clear()
+			fmt.Fprint(sv, gui.searchQuery)
+		}
+		_, _ = g.SetCurrentView("searchbar")
+	} else {
+		g.DeleteView("searchbar")
+	}
+
 	// Help overlay — rendered on top of everything else when visible.
 	if gui.helpVisible {
 		hw := min(64, width-4)
@@ -89,7 +110,11 @@ func (gui *Gui) layout(g *gocui.Gui) error {
 func (gui *Gui) configureView(v *gocui.View, name string) {
 	switch name {
 	case "changed":
-		v.Title = " ● Changed "
+		if v.IsSearching() {
+			v.Title = fmt.Sprintf(" ● Changed  /%s ", gui.searchQuery)
+		} else {
+			v.Title = " ● Changed "
+		}
 		v.Highlight = true
 		v.HighlightInactive = true
 		v.SelBgColor = gocui.ColorBlue
@@ -97,7 +122,11 @@ func (gui *Gui) configureView(v *gocui.View, name string) {
 		v.InactiveViewSelBgColor = gocui.NewRGBColor(40, 60, 100)
 
 	case "managed":
-		v.Title = " ✓ Managed "
+		if v.IsSearching() {
+			v.Title = fmt.Sprintf(" ✓ Managed  /%s ", gui.searchQuery)
+		} else {
+			v.Title = " ✓ Managed "
+		}
 		v.Highlight = true
 		v.HighlightInactive = true
 		v.SelBgColor = gocui.ColorBlue
@@ -105,7 +134,11 @@ func (gui *Gui) configureView(v *gocui.View, name string) {
 		v.InactiveViewSelBgColor = gocui.NewRGBColor(40, 60, 100)
 
 	case "scripts":
-		v.Title = " ⚙ Scripts "
+		if v.IsSearching() {
+			v.Title = fmt.Sprintf(" ⚙ Scripts  /%s ", gui.searchQuery)
+		} else {
+			v.Title = " ⚙ Scripts "
+		}
 		v.Highlight = true
 		v.HighlightInactive = true
 		v.SelBgColor = gocui.ColorBlue

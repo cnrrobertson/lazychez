@@ -145,6 +145,51 @@ func keyName(key interface{}) string {
 	return "?"
 }
 
+// ── Search editor ─────────────────────────────────────────────────────────────
+
+// searchEditor implements gocui.Editor for the "searchbar" input view.
+// Each keystroke updates gui.searchQuery and calls View.Search on the panel.
+// j/k/arrow navigation is handled by dedicated gocui keybindings on "searchbar"
+// so those keys navigate the list rather than being typed into the query.
+type searchEditor struct{ gui *Gui }
+
+// Edit satisfies gocui.Editor.
+func (e *searchEditor) Edit(v *gocui.View, key gocui.Key, ch rune, mod gocui.Modifier) bool {
+	switch key {
+	case gocui.KeyBackspace, gocui.KeyBackspace2:
+		if len(e.gui.searchQuery) > 0 {
+			runes := []rune(e.gui.searchQuery)
+			e.gui.searchQuery = string(runes[:len(runes)-1])
+		}
+	case gocui.KeyEsc:
+		e.gui.g.Update(func(g *gocui.Gui) error {
+			return e.gui.cancelSearch(g)
+		})
+		return true
+	case gocui.KeyEnter:
+		e.gui.g.Update(func(g *gocui.Gui) error {
+			return e.gui.confirmSearch(g)
+		})
+		return true
+	default:
+		if ch != 0 {
+			e.gui.searchQuery += string(ch)
+		}
+	}
+	// Refresh the search bar display.
+	v.Clear()
+	fmt.Fprint(v, e.gui.searchQuery)
+	// Apply live search to the panel view.
+	if pv, err := e.gui.g.View(e.gui.searchPanel); err == nil {
+		if e.gui.searchQuery == "" {
+			pv.ClearSearch()
+		} else {
+			pv.Search(e.gui.searchQuery, nil)
+		}
+	}
+	return true
+}
+
 // ── Help search editor ────────────────────────────────────────────────────────
 
 // helpEditor implements gocui.Editor for the "helpsearch" input view.

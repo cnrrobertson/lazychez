@@ -275,6 +275,39 @@ func (gui *Gui) openLazygit(g *gocui.Gui, _ *gocui.View) error {
 	return nil
 }
 
+// ── Search ────────────────────────────────────────────────────────────────────
+
+// openSearch opens the search bar for the currently focused panel.
+// layout() creates the "searchbar" view on the next frame.
+func (gui *Gui) openSearch(g *gocui.Gui, _ *gocui.View) error {
+	gui.searchPanel = gui.currentPanel
+	gui.searchQuery = ""
+	gui.searchVisible = true
+	return nil
+}
+
+// confirmSearch closes the search bar while keeping the highlights active on
+// the panel. gocui's built-in n/N/Esc handling takes over once the panel
+// regains focus.
+func (gui *Gui) confirmSearch(g *gocui.Gui) error {
+	gui.searchVisible = false
+	g.DeleteView("searchbar")
+	_, err := g.SetCurrentView(gui.searchPanel)
+	return err
+}
+
+// cancelSearch clears all search highlights and closes the bar.
+func (gui *Gui) cancelSearch(g *gocui.Gui) error {
+	gui.searchVisible = false
+	gui.searchQuery = ""
+	if pv, err := g.View(gui.searchPanel); err == nil {
+		pv.ClearSearch()
+	}
+	g.DeleteView("searchbar")
+	_, err := g.SetCurrentView(gui.searchPanel)
+	return err
+}
+
 // ── Help overlay ──────────────────────────────────────────────────────────────
 
 // showHelp opens the keybindings help overlay. Pressing '?' again closes it.

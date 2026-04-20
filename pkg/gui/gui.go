@@ -47,6 +47,11 @@ type Gui struct {
 	helpVisible bool
 	helpFilter  string
 
+	// --- search ---
+	searchVisible bool   // search bar is open
+	searchPanel   string // panel being searched ("changed"|"managed"|"scripts")
+	searchQuery   string // current typed query
+
 	// --- async preview guard ---
 	// previewGen is incremented on each preview request. The goroutine captures
 	// a snapshot; if the snapshot no longer matches when it finishes, the result
@@ -90,6 +95,14 @@ func (gui *Gui) Run() error {
 	gui.g = g
 	g.Highlight = true
 	g.SelFgColor = gocui.ColorGreen
+
+	// gocui defaults: SearchEscapeKey=Esc, NextSearchMatchKey='n', PrevSearchMatchKey='N'.
+	// Hook OnSearchEscape so our searchQuery field stays in sync when the user
+	// presses Esc to clear an active search on a panel.
+	g.OnSearchEscape = func() error {
+		gui.searchQuery = ""
+		return nil
+	}
 
 	g.SetManagerFunc(gui.layout)
 

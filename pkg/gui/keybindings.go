@@ -41,6 +41,17 @@ func (gui *Gui) setKeybindings() error {
 		{ViewName: "scripts", Key: 'k', Mod: gocui.ModNone, Description: "move up", Tag: "navigation", Handler: gui.navigateUp},
 		{ViewName: "scripts", Key: gocui.KeyArrowUp, Mod: gocui.ModNone, Handler: gui.navigateUp},
 		{ViewName: "scripts", Key: 'e', Mod: gocui.ModNone, Description: "edit script", Handler: gui.editFile},
+
+		// --- search: open ---
+		{ViewName: "changed", Key: '/', Mod: gocui.ModNone, Description: "search", Handler: gui.openSearch},
+		{ViewName: "managed", Key: '/', Mod: gocui.ModNone, Description: "search", Handler: gui.openSearch},
+		{ViewName: "scripts", Key: '/', Mod: gocui.ModNone, Description: "search", Handler: gui.openSearch},
+
+		// --- search: navigate panel while bar has focus (bypass searchEditor) ---
+		{ViewName: "searchbar", Key: 'j', Mod: gocui.ModNone, Handler: gui.navigateDown},
+		{ViewName: "searchbar", Key: gocui.KeyArrowDown, Mod: gocui.ModNone, Handler: gui.navigateDown},
+		{ViewName: "searchbar", Key: 'k', Mod: gocui.ModNone, Handler: gui.navigateUp},
+		{ViewName: "searchbar", Key: gocui.KeyArrowUp, Mod: gocui.ModNone, Handler: gui.navigateUp},
 	}
 
 	for _, b := range bs {
@@ -52,31 +63,54 @@ func (gui *Gui) setKeybindings() error {
 }
 
 // navigateDown moves the cursor down one line in the focused panel and updates
-// the preview pane to reflect the newly selected item.
+// the preview pane to reflect the newly selected item. When called from the
+// "searchbar" view, it resolves to the panel behind the bar.
 func (gui *Gui) navigateDown(g *gocui.Gui, v *gocui.View) error {
-	switch v.Name() {
+	pv, panel := gui.resolvePanel(g, v)
+	if pv == nil {
+		return nil
+	}
+	switch panel {
 	case "changed":
-		gui.scrollDown(v, &gui.changedIdx, len(gui.changedFlat))
+		gui.scrollDown(pv, &gui.changedIdx, len(gui.changedFlat))
 	case "managed":
-		gui.scrollDown(v, &gui.managedIdx, len(gui.managedFlat))
+		gui.scrollDown(pv, &gui.managedIdx, len(gui.managedFlat))
 	case "scripts":
-		gui.scrollDown(v, &gui.scriptIdx, len(gui.scripts))
+		gui.scrollDown(pv, &gui.scriptIdx, len(gui.scripts))
 	}
 	return gui.updatePreview(g)
 }
 
 // navigateUp moves the cursor up one line in the focused panel and updates the
-// preview pane.
+// preview pane. When called from "searchbar", it resolves to the panel behind.
 func (gui *Gui) navigateUp(g *gocui.Gui, v *gocui.View) error {
-	switch v.Name() {
+	pv, panel := gui.resolvePanel(g, v)
+	if pv == nil {
+		return nil
+	}
+	switch panel {
 	case "changed":
-		gui.scrollUp(v, &gui.changedIdx)
+		gui.scrollUp(pv, &gui.changedIdx)
 	case "managed":
-		gui.scrollUp(v, &gui.managedIdx)
+		gui.scrollUp(pv, &gui.managedIdx)
 	case "scripts":
-		gui.scrollUp(v, &gui.scriptIdx)
+		gui.scrollUp(pv, &gui.scriptIdx)
 	}
 	return gui.updatePreview(g)
+}
+
+// resolvePanel returns the real panel view and name for navigation purposes.
+// When called from "searchbar", it returns the panel behind the bar so that
+// j/k while typing navigate the list rather than the (invisible) editor view.
+func (gui *Gui) resolvePanel(g *gocui.Gui, v *gocui.View) (*gocui.View, string) {
+	if v.Name() == "searchbar" {
+		pv, err := g.View(gui.searchPanel)
+		if err != nil {
+			return nil, ""
+		}
+		return pv, gui.searchPanel
+	}
+	return v, v.Name()
 }
 
 // nextPanel cycles focus to the next left panel and refreshes the preview.

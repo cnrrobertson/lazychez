@@ -114,7 +114,9 @@ func (gui *Gui) reAddFile(_ *gocui.Gui, _ *gocui.View) error {
 // Works from both the "managed" and "changed" panels.
 func (gui *Gui) forgetFile(_ *gocui.Gui, _ *gocui.View) error {
 	target := gui.currentTarget()
-	if target == "" {
+	if target == "" || filepath.IsAbs(target) {
+		// Empty = nothing selected; absolute = source-dir file (Templates tab),
+		// which has no chezmoi target to forget.
 		return nil
 	}
 	go func() {
@@ -136,6 +138,9 @@ func (gui *Gui) forgetFile(_ *gocui.Gui, _ *gocui.View) error {
 func (gui *Gui) toggleCollapse(g *gocui.Gui, v *gocui.View) error {
 	switch v.Name() {
 	case "changed":
+		if gui.changedTab == 1 {
+			return gui.toggleFsCollapse(g, v)
+		}
 		if gui.changedIdx >= len(gui.changedFlat) {
 			return nil
 		}
@@ -153,6 +158,9 @@ func (gui *Gui) toggleCollapse(g *gocui.Gui, v *gocui.View) error {
 		return gui.renderChanged(g)
 
 	case "managed":
+		if gui.managedTab == 1 {
+			return gui.toggleTmplCollapse(g, v)
+		}
 		if gui.managedIdx >= len(gui.managedFlat) {
 			return nil
 		}
@@ -168,21 +176,39 @@ func (gui *Gui) toggleCollapse(g *gocui.Gui, v *gocui.View) error {
 		gui.rebuildManagedTree()
 		gui.repositionToDir(v, gui.managedFlat, &gui.managedIdx, node.Path)
 		return gui.renderManaged(g)
+
+	case "scripts":
+		if gui.scriptsTab == 1 {
+			return gui.toggleSrcCollapse(g, v)
+		}
 	}
 	return nil
 }
 
 // ── Edit ──────────────────────────────────────────────────────────────────────
 
-// editFile suspends the TUI and runs `chezmoi edit <target>` with full terminal
-// access. On return the TUI resumes exactly where it was and data is reloaded.
+// editFile suspends the TUI and opens the selected file for editing.
+// For target files (home-relative paths), it uses `chezmoi edit` so chezmoi
+// can locate the source. For source-dir files (absolute paths — returned by
+// currentTarget when the Scripts Data tab is active), it opens $EDITOR directly.
 func (gui *Gui) editFile(g *gocui.Gui, _ *gocui.View) error {
 	target := gui.currentTarget()
 	if target == "" {
 		return nil
 	}
-	home, _ := os.UserHomeDir()
-	cmd := exec.Command("chezmoi", "edit", filepath.Join(home, target))
+
+	var cmd *exec.Cmd
+	if filepath.IsAbs(target) {
+		// Absolute path = source-dir file; open directly in $EDITOR.
+		editor := os.Getenv("EDITOR")
+		if editor == "" {
+			editor = "vi"
+		}
+		cmd = exec.Command(editor, target)
+	} else {
+		home, _ := os.UserHomeDir()
+		cmd = exec.Command("chezmoi", "edit", filepath.Join(home, target))
+	}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 
 	if err := g.Suspend(); err != nil {
@@ -202,10 +228,33 @@ func (gui *Gui) editFile(g *gocui.Gui, _ *gocui.View) error {
 func (gui *Gui) currentTarget() string {
 	switch gui.currentPanel {
 	case "changed":
+		if gui.changedTab == 1 {
+			if gui.fsIdx < len(gui.fsFlat) && !gui.fsFlat[gui.fsIdx].IsDir {
+				return gui.fsFlat[gui.fsIdx].Path
+			}
+			return ""
+		}
 		return gui.changedFileTarget()
 	case "managed":
+		if gui.managedTab == 1 {
+			// Templates tab: return absolute source path so editFile uses $EDITOR.
+			if gui.tmplIdx < len(gui.tmplFlat) {
+				fn := gui.tmplFlat[gui.tmplIdx]
+				if !fn.Node.IsDir {
+					return filepath.Join(gui.srcRoot, gui.tmplPaths[fn.Node.Index])
+				}
+			}
+			return ""
+		}
 		return gui.managedFileTarget()
 	case "scripts":
+		if gui.scriptsTab == 1 {
+			// Data tab: return absolute source path so editFile uses $EDITOR.
+			if gui.srcIdx < len(gui.srcFlat) && !gui.srcFlat[gui.srcIdx].IsDir {
+				return filepath.Join(gui.srcRoot, gui.srcFlat[gui.srcIdx].Path)
+			}
+			return ""
+		}
 		if gui.scriptIdx < len(gui.scripts) {
 			return gui.scripts[gui.scriptIdx].Path
 		}
@@ -310,24 +359,72 @@ func (gui *Gui) openSearch(g *gocui.Gui, _ *gocui.View) error {
 
 // confirmSearch closes the search bar while keeping the highlights active on
 // the panel. gocui's built-in n/N/Esc handling takes over once the panel
-// regains focus.
+// regains focus. Syncs the panel index to wherever the search placed the cursor.
 func (gui *Gui) confirmSearch(g *gocui.Gui) error {
+	if pv, err := g.View(gui.searchPanel); err == nil {
+		_, oy := pv.Origin()
+		_, cy := pv.Cursor()
+		gui.syncPanelIdx(gui.searchPanel, oy+cy)
+	}
 	gui.searchVisible = false
 	g.DeleteView("searchbar")
 	_, err := g.SetCurrentView(gui.searchPanel)
 	return err
 }
 
-// cancelSearch clears all search highlights and closes the bar.
+// cancelSearch clears all search highlights and closes the bar. Syncs the
+// panel index to the current cursor position so the selection matches what's
+// visible (search may have moved the cursor before the user cancelled).
 func (gui *Gui) cancelSearch(g *gocui.Gui) error {
-	gui.searchVisible = false
-	gui.searchQuery = ""
 	if pv, err := g.View(gui.searchPanel); err == nil {
+		_, oy := pv.Origin()
+		_, cy := pv.Cursor()
+		gui.syncPanelIdx(gui.searchPanel, oy+cy)
 		pv.ClearSearch()
 	}
+	gui.searchVisible = false
+	gui.searchQuery = ""
 	g.DeleteView("searchbar")
 	_, err := g.SetCurrentView(gui.searchPanel)
 	return err
+}
+
+// syncPanelIdx sets the selection index for the given panel to line, clamped
+// to the valid range. Used to re-sync after search navigation moves the view
+// cursor without going through navigateDown/Up.
+func (gui *Gui) syncPanelIdx(panel string, line int) {
+	switch panel {
+	case "changed":
+		if gui.changedTab == 1 {
+			if line >= 0 && line < len(gui.fsFlat) {
+				gui.fsIdx = line
+			}
+		} else {
+			if line >= 0 && line < len(gui.changedFlat) {
+				gui.changedIdx = line
+			}
+		}
+	case "managed":
+		if gui.managedTab == 1 {
+			if line >= 0 && line < len(gui.tmplFlat) {
+				gui.tmplIdx = line
+			}
+		} else {
+			if line >= 0 && line < len(gui.managedFlat) {
+				gui.managedIdx = line
+			}
+		}
+	case "scripts":
+		if gui.scriptsTab == 1 {
+			if line >= 0 && line < len(gui.srcFlat) {
+				gui.srcIdx = line
+			}
+		} else {
+			if line >= 0 && line < len(gui.scripts) {
+				gui.scriptIdx = line
+			}
+		}
+	}
 }
 
 // ── Help overlay ──────────────────────────────────────────────────────────────
@@ -350,4 +447,242 @@ func (gui *Gui) hideHelp(g *gocui.Gui, _ *gocui.View) error {
 	g.DeleteView("helpsearch")
 	_, err := g.SetCurrentView(gui.currentPanel)
 	return err
+}
+
+// ── Changed panel tabs ────────────────────────────────────────────────────────
+
+// nextChangedTab switches the Changed panel to the Files tab and builds the
+// filesystem flat list on first visit (lazy — no up-front full-home scan).
+func (gui *Gui) nextChangedTab(g *gocui.Gui, _ *gocui.View) error {
+	if gui.changedTab == 1 {
+		return nil
+	}
+	gui.changedTab = 1
+	gui.rebuildFsFlat()
+	gui.fsIdx = 0
+	if v, err := g.View("changed"); err == nil {
+		v.TabIndex = 1
+		v.SetOrigin(0, 0)
+		v.SetCursor(0, 0)
+	}
+	return gui.renderChanged(g)
+}
+
+// prevChangedTab switches the Changed panel back to the Changes tab and
+// restores the cursor to the previously selected item.
+func (gui *Gui) prevChangedTab(g *gocui.Gui, _ *gocui.View) error {
+	if gui.changedTab == 0 {
+		return nil
+	}
+	gui.changedTab = 0
+	if v, err := g.View("changed"); err == nil {
+		v.TabIndex = 0
+		positionCursor(v, gui.changedIdx)
+	}
+	return gui.renderChanged(g)
+}
+
+// ── Filesystem collapse toggle ────────────────────────────────────────────────
+
+// toggleFsCollapse expands or collapses the directory under the cursor in the
+// Files tab. No-op when a file is selected.
+func (gui *Gui) toggleFsCollapse(g *gocui.Gui, v *gocui.View) error {
+	if gui.fsIdx >= len(gui.fsFlat) {
+		return nil
+	}
+	entry := gui.fsFlat[gui.fsIdx]
+	if !entry.IsDir {
+		return nil
+	}
+	if gui.fsExpanded[entry.Path] {
+		delete(gui.fsExpanded, entry.Path)
+	} else {
+		gui.fsExpanded[entry.Path] = true
+	}
+	gui.rebuildFsFlat()
+	// Reposition cursor to the toggled directory.
+	for i, fe := range gui.fsFlat {
+		if fe.Path == entry.Path {
+			gui.fsIdx = i
+			if v != nil {
+				positionCursor(v, gui.fsIdx)
+			}
+			break
+		}
+	}
+	return gui.renderChanged(g)
+}
+
+// ── Add from filesystem tab ───────────────────────────────────────────────────
+
+// addFsFile runs `chezmoi add` on the currently selected entry in the Files tab.
+func (gui *Gui) addFsFile(_ *gocui.Gui, _ *gocui.View) error {
+	if gui.fsIdx >= len(gui.fsFlat) {
+		return nil
+	}
+	target := gui.fsFlat[gui.fsIdx].Path
+	go func() {
+		gui.logConsole(fmt.Sprintf("Adding %s...", target))
+		if err := gui.cz.Add(target); err != nil {
+			gui.logConsole("Error: " + err.Error())
+			return
+		}
+		gui.logConsole(fmt.Sprintf("✓ Added %s", target))
+		go gui.reloadChanged()
+	}()
+	return nil
+}
+
+// addFileDispatch routes the `+` keybind to the correct add handler depending
+// on which tab is active on the Changed panel.
+func (gui *Gui) addFileDispatch(g *gocui.Gui, v *gocui.View) error {
+	if gui.changedTab == 1 {
+		return gui.addFsFile(g, v)
+	}
+	return gui.addFile(g, v)
+}
+
+// ── Managed panel tabs ────────────────────────────────────────────────────────
+
+// nextManagedTab switches the Managed panel to the Templates tab. Fetches the
+// chezmoi source directory lazily on first visit and rebuilds the template tree.
+func (gui *Gui) nextManagedTab(g *gocui.Gui, _ *gocui.View) error {
+	if gui.managedTab == 1 {
+		return nil
+	}
+	if gui.srcRoot == "" {
+		srcDir, err := gui.cz.SourceDir()
+		if err != nil {
+			gui.logConsole("Error: could not get chezmoi source path: " + err.Error())
+			return nil
+		}
+		gui.srcRoot = srcDir
+	}
+	gui.managedTab = 1
+	gui.rebuildTmplTree()
+	gui.tmplIdx = 0
+	if v, err := g.View("managed"); err == nil {
+		v.TabIndex = 1
+		v.SetOrigin(0, 0)
+		v.SetCursor(0, 0)
+	}
+	return gui.renderManaged(g)
+}
+
+// prevManagedTab switches the Managed panel back to the Managed tab and
+// restores the cursor to the previously selected file.
+func (gui *Gui) prevManagedTab(g *gocui.Gui, _ *gocui.View) error {
+	if gui.managedTab == 0 {
+		return nil
+	}
+	gui.managedTab = 0
+	if v, err := g.View("managed"); err == nil {
+		v.TabIndex = 0
+		positionCursor(v, gui.managedIdx)
+	}
+	return gui.renderManaged(g)
+}
+
+// ── Template tree collapse toggle ─────────────────────────────────────────────
+
+// toggleTmplCollapse expands or collapses the directory under the cursor in the
+// Templates tab. No-op when a file is selected.
+func (gui *Gui) toggleTmplCollapse(g *gocui.Gui, v *gocui.View) error {
+	if gui.tmplIdx >= len(gui.tmplFlat) {
+		return nil
+	}
+	fn := gui.tmplFlat[gui.tmplIdx]
+	if !fn.Node.IsDir {
+		return nil
+	}
+	if gui.tmplCollapsed[fn.Node.Path] {
+		delete(gui.tmplCollapsed, fn.Node.Path)
+	} else {
+		gui.tmplCollapsed[fn.Node.Path] = true
+	}
+	gui.tmplFlat = filetree.Flatten(gui.tmplTree, gui.tmplCollapsed)
+	// Reposition cursor to the toggled directory.
+	for i, f := range gui.tmplFlat {
+		if f.Node.Path == fn.Node.Path {
+			gui.tmplIdx = i
+			if v != nil {
+				positionCursor(v, gui.tmplIdx)
+			}
+			break
+		}
+	}
+	return gui.renderManaged(g)
+}
+
+// ── Scripts panel tabs ────────────────────────────────────────────────────────
+
+// nextScriptsTab switches the Scripts panel to the Data tab. Fetches the
+// chezmoi source directory lazily on first visit.
+func (gui *Gui) nextScriptsTab(g *gocui.Gui, _ *gocui.View) error {
+	if gui.scriptsTab == 1 {
+		return nil
+	}
+	// Fetch source dir lazily — only on first switch.
+	if gui.srcRoot == "" {
+		srcDir, err := gui.cz.SourceDir()
+		if err != nil {
+			gui.logConsole("Error: could not get chezmoi source path: " + err.Error())
+			return nil
+		}
+		gui.srcRoot = srcDir
+	}
+	gui.scriptsTab = 1
+	gui.rebuildSrcFlat()
+	gui.srcIdx = 0
+	if v, err := g.View("scripts"); err == nil {
+		v.TabIndex = 1
+		v.SetOrigin(0, 0)
+		v.SetCursor(0, 0)
+	}
+	return gui.renderScripts(g)
+}
+
+// prevScriptsTab switches the Scripts panel back to the Scripts tab and
+// restores the cursor to the previously selected script.
+func (gui *Gui) prevScriptsTab(g *gocui.Gui, _ *gocui.View) error {
+	if gui.scriptsTab == 0 {
+		return nil
+	}
+	gui.scriptsTab = 0
+	if v, err := g.View("scripts"); err == nil {
+		v.TabIndex = 0
+		positionCursor(v, gui.scriptIdx)
+	}
+	return gui.renderScripts(g)
+}
+
+// ── Source dir collapse toggle ────────────────────────────────────────────────
+
+// toggleSrcCollapse expands or collapses the directory under the cursor in the
+// Data tab. No-op when a file is selected.
+func (gui *Gui) toggleSrcCollapse(g *gocui.Gui, v *gocui.View) error {
+	if gui.srcIdx >= len(gui.srcFlat) {
+		return nil
+	}
+	entry := gui.srcFlat[gui.srcIdx]
+	if !entry.IsDir {
+		return nil
+	}
+	if gui.srcExpanded[entry.Path] {
+		delete(gui.srcExpanded, entry.Path)
+	} else {
+		gui.srcExpanded[entry.Path] = true
+	}
+	gui.rebuildSrcFlat()
+	// Reposition cursor to the toggled directory.
+	for i, fe := range gui.srcFlat {
+		if fe.Path == entry.Path {
+			gui.srcIdx = i
+			if v != nil {
+				positionCursor(v, gui.srcIdx)
+			}
+			break
+		}
+	}
+	return gui.renderScripts(g)
 }

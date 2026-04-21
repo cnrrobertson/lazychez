@@ -3,6 +3,7 @@ package gui
 import (
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/jesseduffield/gocui"
@@ -33,6 +34,14 @@ type Gui struct {
 	managedFlat      []filetree.FlatNode
 	managedCollapsed map[string]bool
 
+	// --- "Templates" tab of the Managed panel ---
+	managedTab    int                  // 0 = Managed (default), 1 = Templates
+	tmplPaths     []string             // source-relative .tmpl paths (index = FlatNode.Node.Index)
+	tmplTree      *filetree.TreeNode
+	tmplFlat      []filetree.FlatNode
+	tmplCollapsed map[string]bool
+	tmplIdx       int
+
 	// --- selection indices (into flat lists for changed/managed; raw for scripts) ---
 	changedIdx int
 	managedIdx int
@@ -52,6 +61,20 @@ type Gui struct {
 	searchPanel   string // panel being searched ("changed"|"managed"|"scripts")
 	searchQuery   string // current typed query
 
+	// --- "Files" tab of the Changed panel ---
+	changedTab int             // 0 = Changes (default), 1 = Files
+	fsRoot     string          // absolute home dir (set once in NewGui)
+	fsFlat     []FsEntry       // currently visible filesystem entries
+	fsExpanded map[string]bool // explicitly expanded dirs; empty = all collapsed
+	fsIdx      int             // cursor index for Files tab
+
+	// --- "Data" tab of the Scripts panel ---
+	scriptsTab int             // 0 = Scripts (default), 1 = Data
+	srcRoot    string          // chezmoi source dir (fetched lazily on first tab switch)
+	srcFlat    []FsEntry       // currently visible source dir entries
+	srcExpanded map[string]bool // explicitly expanded dirs; empty = all collapsed
+	srcIdx     int             // cursor index for Data tab
+
 	// --- async preview guard ---
 	// previewGen is incremented on each preview request. The goroutine captures
 	// a snapshot; if the snapshot no longer matches when it finishes, the result
@@ -69,6 +92,7 @@ type Gui struct {
 // glamourStyle should be "dark" or "light", detected by the caller before
 // gocui initializes the terminal (to avoid TTY race with termenv).
 func NewGui(cz *chezmoi.Client, glamourStyle string) *Gui {
+	home, _ := os.UserHomeDir()
 	return &Gui{
 		cz:               cz,
 		currentPanel:     "changed",
@@ -76,6 +100,10 @@ func NewGui(cz *chezmoi.Client, glamourStyle string) *Gui {
 		glamourStyle:     glamourStyle,
 		changedCollapsed: make(map[string]bool),
 		managedCollapsed: make(map[string]bool),
+		tmplCollapsed:    make(map[string]bool),
+		fsRoot:           home,
+		fsExpanded:       make(map[string]bool),
+		srcExpanded:      make(map[string]bool),
 	}
 }
 

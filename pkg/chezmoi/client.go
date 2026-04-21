@@ -191,3 +191,14 @@ func (c *Client) Forget(target string) error {
 	_, err := c.run("forget", "--force", expandPath(target))
 	return err
 }
+
+// SourceDir returns the absolute path of the chezmoi source directory
+// (`chezmoi source-path`). Uses runQuiet since it is called lazily on first
+// tab switch, not on every navigation event.
+func (c *Client) SourceDir() (string, error) {
+	out, err := c.runQuiet("source-path")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}

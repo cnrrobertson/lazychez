@@ -20,10 +20,12 @@ func (gui *Gui) setKeybindings() error {
 		{ViewName: "changed", Key: gocui.KeyArrowDown, Mod: gocui.ModNone, Handler: gui.navigateDown},
 		{ViewName: "changed", Key: 'k', Mod: gocui.ModNone, Description: "move up", Tag: "navigation", Handler: gui.navigateUp},
 		{ViewName: "changed", Key: gocui.KeyArrowUp, Mod: gocui.ModNone, Handler: gui.navigateUp},
+		{ViewName: "changed", Key: ']', Mod: gocui.ModNone, Description: "next tab", Handler: gui.nextChangedTab},
+		{ViewName: "changed", Key: '[', Mod: gocui.ModNone, Description: "previous tab", Handler: gui.prevChangedTab},
 		{ViewName: "changed", Key: 'a', Mod: gocui.ModNone, Description: "apply this file", Handler: gui.applyFile},
 		{ViewName: "changed", Key: 'A', Mod: gocui.ModNone, Description: "apply all files", Handler: gui.applyAll},
 		{ViewName: "changed", Key: 'e', Mod: gocui.ModNone, Description: "edit source file", Handler: gui.editFile},
-		{ViewName: "changed", Key: '+', Mod: gocui.ModNone, Description: "add file to chezmoi", Handler: gui.addFile},
+		{ViewName: "changed", Key: '+', Mod: gocui.ModNone, Description: "add file to chezmoi", Handler: gui.addFileDispatch},
 		{ViewName: "changed", Key: 'R', Mod: gocui.ModNone, Description: "re-add (pull target → source)", Handler: gui.reAddFile},
 		{ViewName: "changed", Key: gocui.KeyEnter, Mod: gocui.ModNone, Description: "expand/collapse directory", Handler: gui.toggleCollapse},
 		{ViewName: "changed", Key: 'D', Mod: gocui.ModNone, Description: "forget file (stop tracking)", Handler: gui.forgetFile},
@@ -33,7 +35,9 @@ func (gui *Gui) setKeybindings() error {
 		{ViewName: "managed", Key: gocui.KeyArrowDown, Mod: gocui.ModNone, Handler: gui.navigateDown},
 		{ViewName: "managed", Key: 'k', Mod: gocui.ModNone, Description: "move up", Tag: "navigation", Handler: gui.navigateUp},
 		{ViewName: "managed", Key: gocui.KeyArrowUp, Mod: gocui.ModNone, Handler: gui.navigateUp},
-		{ViewName: "managed", Key: 'e', Mod: gocui.ModNone, Description: "edit source file", Handler: gui.editFile},
+		{ViewName: "managed", Key: ']', Mod: gocui.ModNone, Description: "next tab", Handler: gui.nextManagedTab},
+		{ViewName: "managed", Key: '[', Mod: gocui.ModNone, Description: "previous tab", Handler: gui.prevManagedTab},
+		{ViewName: "managed", Key: 'e', Mod: gocui.ModNone, Description: "edit source file / template", Handler: gui.editFile},
 		{ViewName: "managed", Key: gocui.KeyEnter, Mod: gocui.ModNone, Description: "expand/collapse directory", Handler: gui.toggleCollapse},
 		{ViewName: "managed", Key: 'D', Mod: gocui.ModNone, Description: "forget file (stop tracking)", Handler: gui.forgetFile},
 
@@ -42,7 +46,10 @@ func (gui *Gui) setKeybindings() error {
 		{ViewName: "scripts", Key: gocui.KeyArrowDown, Mod: gocui.ModNone, Handler: gui.navigateDown},
 		{ViewName: "scripts", Key: 'k', Mod: gocui.ModNone, Description: "move up", Tag: "navigation", Handler: gui.navigateUp},
 		{ViewName: "scripts", Key: gocui.KeyArrowUp, Mod: gocui.ModNone, Handler: gui.navigateUp},
-		{ViewName: "scripts", Key: 'e', Mod: gocui.ModNone, Description: "edit script", Handler: gui.editFile},
+		{ViewName: "scripts", Key: ']', Mod: gocui.ModNone, Description: "next tab", Handler: gui.nextScriptsTab},
+		{ViewName: "scripts", Key: '[', Mod: gocui.ModNone, Description: "previous tab", Handler: gui.prevScriptsTab},
+		{ViewName: "scripts", Key: 'e', Mod: gocui.ModNone, Description: "edit script / data file", Handler: gui.editFile},
+		{ViewName: "scripts", Key: gocui.KeyEnter, Mod: gocui.ModNone, Description: "expand/collapse directory", Handler: gui.toggleCollapse},
 
 		// --- search: open ---
 		{ViewName: "changed", Key: '/', Mod: gocui.ModNone, Description: "search", Handler: gui.openSearch},
@@ -74,11 +81,23 @@ func (gui *Gui) navigateDown(g *gocui.Gui, v *gocui.View) error {
 	}
 	switch panel {
 	case "changed":
-		gui.scrollDown(pv, &gui.changedIdx, len(gui.changedFlat))
+		if gui.changedTab == 1 {
+			gui.scrollDown(pv, &gui.fsIdx, len(gui.fsFlat))
+		} else {
+			gui.scrollDown(pv, &gui.changedIdx, len(gui.changedFlat))
+		}
 	case "managed":
-		gui.scrollDown(pv, &gui.managedIdx, len(gui.managedFlat))
+		if gui.managedTab == 1 {
+			gui.scrollDown(pv, &gui.tmplIdx, len(gui.tmplFlat))
+		} else {
+			gui.scrollDown(pv, &gui.managedIdx, len(gui.managedFlat))
+		}
 	case "scripts":
-		gui.scrollDown(pv, &gui.scriptIdx, len(gui.scripts))
+		if gui.scriptsTab == 1 {
+			gui.scrollDown(pv, &gui.srcIdx, len(gui.srcFlat))
+		} else {
+			gui.scrollDown(pv, &gui.scriptIdx, len(gui.scripts))
+		}
 	}
 	return gui.updatePreview(g)
 }
@@ -92,11 +111,23 @@ func (gui *Gui) navigateUp(g *gocui.Gui, v *gocui.View) error {
 	}
 	switch panel {
 	case "changed":
-		gui.scrollUp(pv, &gui.changedIdx)
+		if gui.changedTab == 1 {
+			gui.scrollUp(pv, &gui.fsIdx)
+		} else {
+			gui.scrollUp(pv, &gui.changedIdx)
+		}
 	case "managed":
-		gui.scrollUp(pv, &gui.managedIdx)
+		if gui.managedTab == 1 {
+			gui.scrollUp(pv, &gui.tmplIdx)
+		} else {
+			gui.scrollUp(pv, &gui.managedIdx)
+		}
 	case "scripts":
-		gui.scrollUp(pv, &gui.scriptIdx)
+		if gui.scriptsTab == 1 {
+			gui.scrollUp(pv, &gui.srcIdx)
+		} else {
+			gui.scrollUp(pv, &gui.scriptIdx)
+		}
 	}
 	return gui.updatePreview(g)
 }

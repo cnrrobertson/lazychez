@@ -110,6 +110,8 @@ func (gui *Gui) layout(g *gocui.Gui) error {
 func (gui *Gui) configureView(v *gocui.View, name string) {
 	switch name {
 	case "changed":
+		v.Tabs = []string{"Changes", "Files"}
+		v.TabIndex = gui.changedTab
 		if v.IsSearching() {
 			v.Title = fmt.Sprintf(" ● Changed  /%s ", gui.searchQuery)
 		} else {
@@ -122,6 +124,8 @@ func (gui *Gui) configureView(v *gocui.View, name string) {
 		v.InactiveViewSelBgColor = gocui.NewRGBColor(40, 60, 100)
 
 	case "managed":
+		v.Tabs = []string{"Managed", "Templates"}
+		v.TabIndex = gui.managedTab
 		if v.IsSearching() {
 			v.Title = fmt.Sprintf(" ✓ Managed  /%s ", gui.searchQuery)
 		} else {
@@ -134,6 +138,8 @@ func (gui *Gui) configureView(v *gocui.View, name string) {
 		v.InactiveViewSelBgColor = gocui.NewRGBColor(40, 60, 100)
 
 	case "scripts":
+		v.Tabs = []string{"Scripts", "Data"}
+		v.TabIndex = gui.scriptsTab
 		if v.IsSearching() {
 			v.Title = fmt.Sprintf(" ⚙ Scripts  /%s ", gui.searchQuery)
 		} else {

@@ -16,6 +16,62 @@ func (gui *Gui) quit(_ *gocui.Gui, _ *gocui.View) error {
 	return gocui.ErrQuit
 }
 
+// ── Jump to top / bottom ──────────────────────────────────────────────────────
+
+// scrollToTop moves the cursor to the first item in the current panel/tab.
+func (gui *Gui) scrollToTop(g *gocui.Gui, v *gocui.View) error {
+	pv, panel := gui.resolvePanel(g, v)
+	if pv == nil {
+		return nil
+	}
+	idx, _ := gui.panelIdxAndLen(panel)
+	if idx == nil {
+		return nil
+	}
+	*idx = 0
+	positionCursor(pv, 0)
+	return gui.updatePreview(g)
+}
+
+// scrollToBottom moves the cursor to the last item in the current panel/tab.
+func (gui *Gui) scrollToBottom(g *gocui.Gui, v *gocui.View) error {
+	pv, panel := gui.resolvePanel(g, v)
+	if pv == nil {
+		return nil
+	}
+	idx, total := gui.panelIdxAndLen(panel)
+	if idx == nil || total == 0 {
+		return nil
+	}
+	*idx = total - 1
+	positionCursor(pv, *idx)
+	return gui.updatePreview(g)
+}
+
+// panelIdxAndLen returns a pointer to the active selection index and the
+// length of the active list for the given panel, respecting the current tab.
+// Returns (nil, 0) for unknown panels.
+func (gui *Gui) panelIdxAndLen(panel string) (idx *int, total int) {
+	switch panel {
+	case "changed":
+		if gui.changedTab == 1 {
+			return &gui.fsIdx, len(gui.fsFlat)
+		}
+		return &gui.changedIdx, len(gui.changedFlat)
+	case "managed":
+		if gui.managedTab == 1 {
+			return &gui.tmplIdx, len(gui.tmplFlat)
+		}
+		return &gui.managedIdx, len(gui.managedFlat)
+	case "scripts":
+		if gui.scriptsTab == 1 {
+			return &gui.srcIdx, len(gui.srcFlat)
+		}
+		return &gui.scriptIdx, len(gui.scripts)
+	}
+	return nil, 0
+}
+
 // refreshAll reloads all chezmoi data.
 func (gui *Gui) refreshAll(_ *gocui.Gui, _ *gocui.View) error {
 	go gui.initialLoad()
@@ -633,6 +689,19 @@ func (gui *Gui) nextScriptsTab(g *gocui.Gui, _ *gocui.View) error {
 	}
 	gui.scriptsTab = 1
 	gui.rebuildSrcFlat()
+	// Expand all directories on first open — source dir is bounded, unlike ~.
+	for {
+		prev := len(gui.srcFlat)
+		for _, fe := range gui.srcFlat {
+			if fe.IsDir {
+				gui.srcExpanded[fe.Path] = true
+			}
+		}
+		gui.rebuildSrcFlat()
+		if len(gui.srcFlat) == prev {
+			break
+		}
+	}
 	gui.srcIdx = 0
 	if v, err := g.View("scripts"); err == nil {
 		v.TabIndex = 1
@@ -654,6 +723,156 @@ func (gui *Gui) prevScriptsTab(g *gocui.Gui, _ *gocui.View) error {
 		positionCursor(v, gui.scriptIdx)
 	}
 	return gui.renderScripts(g)
+}
+
+// ── Collapse all / expand all ─────────────────────────────────────────────────
+
+// collapseAll folds every directory in the active panel/tab at once.
+// For filetree panels (collapsed map, empty = all expanded): populates the map
+// with every directory path from the flat list.
+// For FsEntry panels (expanded map, empty = all collapsed): clears the map.
+// Scripts tab 0 is a flat list with no directories — no-op.
+func (gui *Gui) collapseAll(g *gocui.Gui, v *gocui.View) error {
+	pv, panel := gui.resolvePanel(g, v)
+	switch panel {
+	case "changed":
+		if gui.changedTab == 1 {
+			// Files tab: collapse = clear expanded map.
+			clear(gui.fsExpanded)
+			gui.rebuildFsFlat()
+			gui.fsIdx = 0
+			if pv != nil {
+				positionCursor(pv, 0)
+			}
+			return gui.renderChanged(g)
+		}
+		// Changes tab: mark every directory collapsed.
+		for _, fn := range gui.changedFlat {
+			if fn.Node.IsDir {
+				gui.changedCollapsed[fn.Node.Path] = true
+			}
+		}
+		gui.changedFlat = filetree.Flatten(gui.changedTree, gui.changedCollapsed)
+		gui.changedIdx = clampIdx(gui.changedIdx, len(gui.changedFlat))
+		if pv != nil {
+			positionCursor(pv, gui.changedIdx)
+		}
+		return gui.renderChanged(g)
+
+	case "managed":
+		if gui.managedTab == 1 {
+			// Templates tab: mark every directory collapsed.
+			for _, fn := range gui.tmplFlat {
+				if fn.Node.IsDir {
+					gui.tmplCollapsed[fn.Node.Path] = true
+				}
+			}
+			gui.tmplFlat = filetree.Flatten(gui.tmplTree, gui.tmplCollapsed)
+			gui.tmplIdx = clampIdx(gui.tmplIdx, len(gui.tmplFlat))
+			if pv != nil {
+				positionCursor(pv, gui.tmplIdx)
+			}
+			return gui.renderManaged(g)
+		}
+		// Managed tab: mark every directory collapsed.
+		for _, fn := range gui.managedFlat {
+			if fn.Node.IsDir {
+				gui.managedCollapsed[fn.Node.Path] = true
+			}
+		}
+		gui.managedFlat = filetree.Flatten(gui.managedTree, gui.managedCollapsed)
+		gui.managedIdx = clampIdx(gui.managedIdx, len(gui.managedFlat))
+		if pv != nil {
+			positionCursor(pv, gui.managedIdx)
+		}
+		return gui.renderManaged(g)
+
+	case "scripts":
+		if gui.scriptsTab == 1 {
+			// Data tab: collapse = clear expanded map.
+			clear(gui.srcExpanded)
+			gui.rebuildSrcFlat()
+			gui.srcIdx = 0
+			if pv != nil {
+				positionCursor(pv, 0)
+			}
+			return gui.renderScripts(g)
+		}
+		// Scripts tab 0: flat list, nothing to collapse.
+	}
+	return nil
+}
+
+// expandAll unfolds every directory in the active panel/tab at once.
+// For filetree panels: clears the collapsed map and rebuilds.
+// For FsEntry panels (home dir / source dir): the home dir can be enormous so
+// we only expand the FsEntry panels that are bounded (source dir). The Files
+// tab (home dir) is left unchanged to avoid a multi-second scan.
+func (gui *Gui) expandAll(g *gocui.Gui, v *gocui.View) error {
+	pv, panel := gui.resolvePanel(g, v)
+	switch panel {
+	case "changed":
+		if gui.changedTab == 1 {
+			// Files tab: expanding the entire home dir is impractical — no-op.
+			return nil
+		}
+		clear(gui.changedCollapsed)
+		gui.changedFlat = filetree.Flatten(gui.changedTree, gui.changedCollapsed)
+		gui.changedIdx = clampIdx(gui.changedIdx, len(gui.changedFlat))
+		if pv != nil {
+			positionCursor(pv, gui.changedIdx)
+		}
+		return gui.renderChanged(g)
+
+	case "managed":
+		if gui.managedTab == 1 {
+			clear(gui.tmplCollapsed)
+			gui.tmplFlat = filetree.Flatten(gui.tmplTree, gui.tmplCollapsed)
+			gui.tmplIdx = clampIdx(gui.tmplIdx, len(gui.tmplFlat))
+			if pv != nil {
+				positionCursor(pv, gui.tmplIdx)
+			}
+			return gui.renderManaged(g)
+		}
+		clear(gui.managedCollapsed)
+		gui.managedFlat = filetree.Flatten(gui.managedTree, gui.managedCollapsed)
+		gui.managedIdx = clampIdx(gui.managedIdx, len(gui.managedFlat))
+		if pv != nil {
+			positionCursor(pv, gui.managedIdx)
+		}
+		return gui.renderManaged(g)
+
+	case "scripts":
+		if gui.scriptsTab == 1 {
+			// Data tab: source dir is bounded — expand all entries lazily.
+			for _, fe := range gui.srcFlat {
+				if fe.IsDir {
+					gui.srcExpanded[fe.Path] = true
+				}
+			}
+			gui.rebuildSrcFlat()
+			// Keep expanding until no new dirs appear (depth > 1 dirs were hidden).
+			for {
+				prev := len(gui.srcFlat)
+				for _, fe := range gui.srcFlat {
+					if fe.IsDir {
+						gui.srcExpanded[fe.Path] = true
+					}
+				}
+				gui.rebuildSrcFlat()
+				if len(gui.srcFlat) == prev {
+					break
+				}
+			}
+			gui.srcIdx = clampIdx(gui.srcIdx, len(gui.srcFlat))
+			if pv != nil {
+				positionCursor(pv, gui.srcIdx)
+			}
+			return gui.renderScripts(g)
+		}
+		// Scripts tab 0: flat list, nothing to expand.
+	}
+	return nil
 }
 
 // ── Source dir collapse toggle ────────────────────────────────────────────────

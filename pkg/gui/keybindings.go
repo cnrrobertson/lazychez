@@ -13,7 +13,11 @@ func (gui *Gui) setKeybindings() error {
 		{ViewName: "", Key: gocui.KeyTab, Mod: gocui.ModNone, Description: "next panel", Tag: "navigation", Handler: gui.nextPanel},
 		{ViewName: "", Key: gocui.KeyBacktab, Mod: gocui.ModNone, Description: "previous panel", Tag: "navigation", Handler: gui.prevPanel},
 		{ViewName: "", Key: 'r', Mod: gocui.ModNone, Description: "refresh all", Tag: "global", Handler: gui.refreshAll},
-		{ViewName: "", Key: 'g', Mod: gocui.ModNone, Description: "open lazygit in chezmoi source dir", Tag: "global", Handler: gui.openLazygit},
+		{ViewName: "", Key: gocui.KeyCtrlG, Mod: gocui.ModNone, Description: "open lazygit in chezmoi source dir", Tag: "global", Handler: gui.openLazygit},
+		{ViewName: "", Key: 'g', Mod: gocui.ModNone, Description: "go to top", Tag: "navigation", Handler: gui.scrollToTop},
+		{ViewName: "", Key: 'G', Mod: gocui.ModNone, Description: "go to bottom", Tag: "navigation", Handler: gui.scrollToBottom},
+		{ViewName: "", Key: '-', Mod: gocui.ModNone, Description: "collapse all directories", Tag: "navigation", Handler: gui.collapseAll},
+		{ViewName: "", Key: '=', Mod: gocui.ModNone, Description: "expand all directories", Tag: "navigation", Handler: gui.expandAll},
 
 		// --- changed panel ---
 		{ViewName: "changed", Key: 'j', Mod: gocui.ModNone, Description: "move down", Tag: "navigation", Handler: gui.navigateDown},
